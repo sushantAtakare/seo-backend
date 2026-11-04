@@ -28,6 +28,16 @@ export const getApiInfo = (req, res) => {
           description: 'Authentication and role-based access',
         },
         {
+          group: 'clients',
+          basePath: '/api/v1/clients',
+          description: 'Client account management',
+        },
+        {
+          group: 'sites',
+          basePath: '/api/v1/sites',
+          description: 'Website / domain management',
+        },
+        {
           group: 'api',
           basePath: '/api/v1',
           description: 'Versioned REST API root',
