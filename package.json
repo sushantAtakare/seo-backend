@@ -12,7 +12,8 @@
     "prisma:status": "prisma migrate status",
     "seed:admin": "node scripts/seed-admin.js",
     "test:auth": "node scripts/test-auth.js",
-    "test:clients-sites": "node scripts/test-clients-sites.js"
+    "test:clients-sites": "node scripts/test-clients-sites.js",
+    "test:audits": "node scripts/test-audits.js"
   },
   "engines": {
     "node": ">=18"

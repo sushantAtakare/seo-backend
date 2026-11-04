@@ -38,6 +38,11 @@ export const getApiInfo = (req, res) => {
           description: 'Website / domain management',
         },
         {
+          group: 'audits',
+          basePath: '/api/v1/audits',
+          description: 'SEO audit request management',
+        },
+        {
           group: 'api',
           basePath: '/api/v1',
           description: 'Versioned REST API root',
