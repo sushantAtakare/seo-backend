@@ -85,6 +85,8 @@ model Site {
   client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   audits    Audit[]
 
+  @@unique([clientId, domain])
+  @@unique([clientId, url])
   @@index([clientId])
   @@index([domain])
   @@map("sites")
