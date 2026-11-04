@@ -23,9 +23,14 @@ export const getApiInfo = (req, res) => {
           description: 'Service health check',
         },
         {
+          group: 'auth',
+          basePath: '/api/v1/auth',
+          description: 'Authentication and role-based access',
+        },
+        {
           group: 'api',
           basePath: '/api/v1',
-          description: 'Versioned REST API root (domain routes TBD)',
+          description: 'Versioned REST API root',
         },
       ],
     },

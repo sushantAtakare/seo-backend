@@ -2,7 +2,16 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const requiredVars = ['PORT', 'NODE_ENV', 'CLIENT_ORIGIN', 'DATABASE_URL'];
+const requiredVars = [
+  'PORT',
+  'NODE_ENV',
+  'CLIENT_ORIGIN',
+  'DATABASE_URL',
+  'JWT_ACCESS_SECRET',
+  'JWT_REFRESH_SECRET',
+  'JWT_ACCESS_EXPIRES_IN',
+  'JWT_REFRESH_EXPIRES_IN',
+];
 
 const missing = requiredVars.filter((key) => !process.env[key]);
 
@@ -18,6 +27,12 @@ const env = {
   clientOrigin: process.env.CLIENT_ORIGIN,
   databaseUrl: process.env.DATABASE_URL,
   isProduction: process.env.NODE_ENV === 'production',
+  jwt: {
+    accessSecret: process.env.JWT_ACCESS_SECRET,
+    refreshSecret: process.env.JWT_REFRESH_SECRET,
+    accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN,
+    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN,
+  },
 };
 
 if (Number.isNaN(env.port) || env.port <= 0) {
@@ -28,6 +43,17 @@ if (!env.databaseUrl.includes('seo_automation')) {
   throw new Error(
     'DATABASE_URL must target the seo_automation database'
   );
+}
+
+if (
+  env.jwt.accessSecret.length < 32 ||
+  env.jwt.refreshSecret.length < 32
+) {
+  throw new Error('JWT secrets must be at least 32 characters');
+}
+
+if (env.jwt.accessSecret === env.jwt.refreshSecret) {
+  throw new Error('JWT access and refresh secrets must be different');
 }
 
 export default env;
