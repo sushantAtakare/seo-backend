@@ -1,0 +1,36 @@
+{
+  "name": "seo-backend",
+  "version": "1.0.0",
+  "description": "SEO Automation Dashboard backend API",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:status": "prisma migrate status"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "seo",
+    "express",
+    "api"
+  ],
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "helmet": "^8.3.0",
+    "morgan": "^1.12.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14",
+    "prisma": "^6.19.3"
+  }
+}

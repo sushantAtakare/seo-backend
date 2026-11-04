@@ -1,0 +1,141 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  CLIENT
+}
+
+enum ClientStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AuditStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id            String         @id @default(cuid())
+  name          String
+  email         String         @unique
+  passwordHash  String?
+  role          UserRole
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  notifications Notification[]
+
+  @@index([role])
+  @@map("users")
+}
+
+model Client {
+  id            String       @id @default(cuid())
+  businessName  String
+  website       String
+  contactPerson String
+  contactEmail  String
+  industry      String
+  status        ClientStatus @default(ACTIVE)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  sites         Site[]
+  audits        Audit[]
+
+  @@index([status])
+  @@index([contactEmail])
+  @@map("clients")
+}
+
+model Site {
+  id        String   @id @default(cuid())
+  clientId  String
+  domain    String
+  url       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  audits    Audit[]
+
+  @@index([clientId])
+  @@index([domain])
+  @@map("sites")
+}
+
+model Audit {
+  id           String       @id @default(cuid())
+  clientId     String
+  siteId       String
+  status       AuditStatus  @default(PENDING)
+  overallScore Int?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  client       Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  site         Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  result       AuditResult?
+  report       Report?
+
+  @@index([clientId])
+  @@index([siteId])
+  @@index([status])
+  @@map("audits")
+}
+
+model AuditResult {
+  id                 String @id @default(cuid())
+  auditId            String @unique
+  technicalSeo       Int
+  onPageSeo          Int
+  performance        Int
+  mobileFriendliness Int
+  contentQuality     Int
+  schemaMarkup       Int
+  criticalIssues     Json
+  importantIssues    Json
+  warnings           Json
+  passedChecks       Json
+  recommendations    Json
+  audit              Audit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  @@map("audit_results")
+}
+
+model Report {
+  id          String    @id @default(cuid())
+  auditId     String    @unique
+  status      String
+  filePath    String?
+  generatedAt DateTime?
+  createdAt   DateTime  @default(now())
+  audit       Audit     @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("reports")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  channel   String
+  status    String
+  message   String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([channel])
+  @@map("notifications")
+}
