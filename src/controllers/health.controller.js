@@ -45,7 +45,13 @@ export const getApiInfo = (req, res) => {
         {
           group: 'crawler',
           basePath: '/api/v1/audits/:id/crawl',
-          description: 'Synchronous on-page SEO crawl for an audit',
+          description: 'Queued on-page SEO crawl for an audit',
+        },
+        {
+          group: 'integrations',
+          basePath: 'worker:/seo-audit-queue',
+          description:
+            'PageSpeed, Search Console, DataForSEO and Schema analysis after crawl',
         },
         {
           group: 'api',

@@ -7,6 +7,7 @@ import {
 } from '../../config/queue.js';
 import ApiError from '../../utils/ApiError.js';
 import { processAuditCrawl } from '../crawler/crawler.service.js';
+import { enrichAuditWithIntegrations } from '../integrations/integrations.service.js';
 import env from '../../config/env.js';
 
 function isPermanentCrawlError(error) {
@@ -42,23 +43,57 @@ export function createAuditWorker() {
       await job.updateProgress(5);
 
       try {
-        const result = await processAuditCrawl(auditId, {
-          ...crawlConfig,
-          allowPrivateNetworks:
-            crawlConfig.allowPrivateNetworks ??
-            env.crawler.allowPrivateNetworks,
-        }, {
-          onProgress: async (value) => {
-            await job.updateProgress(value);
+        const result = await processAuditCrawl(
+          auditId,
+          {
+            ...crawlConfig,
+            allowPrivateNetworks:
+              crawlConfig.allowPrivateNetworks ??
+              env.crawler.allowPrivateNetworks,
           },
-        });
+          {
+            onProgress: async (value) => {
+              // Reserve 70% of progress for crawl
+              await job.updateProgress(Math.min(70, Math.round(value * 0.7)));
+            },
+          }
+        );
+
+        await job.updateProgress(75);
+
+        // Integrations run after a successful crawl and must not discard crawl results
+        let integrations = null;
+        try {
+          integrations = await enrichAuditWithIntegrations(auditId, result);
+        } catch (integrationError) {
+          console.error(
+            `[audit-worker] integrations failed for ${auditId}:`,
+            integrationError.message
+          );
+          integrations = {
+            auditId,
+            skipped: true,
+            reason: 'Integration enrichment failed',
+          };
+        }
 
         await job.updateProgress(100);
+
         return {
           auditId,
           status: result.status,
-          overallScore: result.overallScore,
+          overallScore:
+            integrations?.overallScore ?? result.overallScore ?? null,
           pagesCrawled: result.pagesCrawled,
+          integrations: {
+            useMocks: integrations?.integrations?.useMocks ?? null,
+            pagespeed: integrations?.integrations?.pagespeed?.success ?? null,
+            searchConsole:
+              integrations?.integrations?.searchConsole?.success ?? null,
+            dataforseo:
+              integrations?.integrations?.dataforseo?.success ?? null,
+            schema: integrations?.integrations?.schema?.success ?? null,
+          },
         };
       } catch (error) {
         if (isPermanentCrawlError(error)) {
