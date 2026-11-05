@@ -43,6 +43,11 @@ export const getApiInfo = (req, res) => {
           description: 'SEO audit request management',
         },
         {
+          group: 'crawler',
+          basePath: '/api/v1/audits/:id/crawl',
+          description: 'Synchronous on-page SEO crawl for an audit',
+        },
+        {
           group: 'api',
           basePath: '/api/v1',
           description: 'Versioned REST API root',
