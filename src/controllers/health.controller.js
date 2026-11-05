@@ -54,6 +54,11 @@ export const getApiInfo = (req, res) => {
             'PageSpeed, Search Console, DataForSEO, Schema and Claude AI analysis after crawl',
         },
         {
+          group: 'reports',
+          basePath: '/api/v1/reports',
+          description: 'SEO audit PDF report generation and download',
+        },
+        {
           group: 'api',
           basePath: '/api/v1',
           description: 'Versioned REST API root',

@@ -47,6 +47,9 @@ const env = {
       String(process.env.CRAWLER_ALLOW_PRIVATE_NETWORKS || 'false').toLowerCase() ===
       'true',
   },
+  reports: {
+    dir: process.env.REPORTS_DIR || 'storage/reports',
+  },
 };
 
 if (Number.isNaN(env.port) || env.port <= 0) {

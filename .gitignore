@@ -22,3 +22,7 @@ coverage/
 dist/
 tmp/
 temp/
+
+# Generated SEO report PDFs
+storage/reports/
+*.pdf
