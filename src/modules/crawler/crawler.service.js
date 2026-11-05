@@ -1,6 +1,8 @@
 import prisma from '../../config/prisma.js';
+import env from '../../config/env.js';
 import ApiError from '../../utils/ApiError.js';
 import { assertCanAccessClient } from '../../utils/access.js';
+import { enqueueAuditCrawlJob } from '../queue/audit.jobs.js';
 import {
   CRAWLER_USER_AGENT,
   assertSafePublicUrl,
@@ -15,7 +17,7 @@ import {
   scoreFromIssues,
 } from './crawler.utils.js';
 
-const ALLOWED_AUDIT_STATUSES = new Set(['PENDING', 'FAILED', 'COMPLETED']);
+const ALLOWED_AUDIT_STATUSES = new Set(['PENDING', 'FAILED', 'COMPLETED', 'PROCESSING']);
 const HTML_CONTENT_TYPES = [
   'text/html',
   'application/xhtml+xml',
@@ -283,6 +285,7 @@ export async function crawlWebsite(startUrl, rawConfig = {}) {
         externalLinks: [],
         images: [],
         imagesMissingAlt: [],
+        jsonLdBlocks: [],
         missingTitle: true,
         missingMetaDescription: true,
         missingH1: true,
@@ -345,10 +348,127 @@ async function getOwnedAudit(actor, auditId) {
   return audit;
 }
 
+async function persistCrawlOutcome(audit, crawl) {
+  const recommendations = {
+    crawl: {
+      summary: crawl.summary,
+      pages: crawl.pages.map((page) => ({
+        url: page.url,
+        requestedUrl: page.requestedUrl,
+        statusCode: page.statusCode,
+        contentType: page.contentType,
+        loadTimeMs: page.loadTimeMs,
+        title: page.title,
+        metaDescription: page.metaDescription,
+        metaKeywords: page.metaKeywords,
+        canonical: page.canonical,
+        robotsMeta: page.robotsMeta,
+        language: page.language,
+        headings: page.headings,
+        internalLinks: page.internalLinks,
+        externalLinks: page.externalLinks,
+        imagesMissingAltCount: page.imagesMissingAlt?.length || 0,
+        jsonLdBlocks: page.jsonLdBlocks || [],
+        missingTitle: page.missingTitle,
+        missingMetaDescription: page.missingMetaDescription,
+        missingH1: page.missingH1,
+        error: page.error || null,
+      })),
+      error: null,
+    },
+  };
+
+  const resultData = {
+    technicalSeo: crawl.scores.technicalSeo,
+    onPageSeo: crawl.scores.onPageSeo,
+    performance: crawl.scores.performance,
+    mobileFriendliness: crawl.scores.mobileFriendliness,
+    contentQuality: crawl.scores.contentQuality,
+    schemaMarkup: crawl.scores.schemaMarkup,
+    criticalIssues: crawl.issues.criticalIssues,
+    importantIssues: crawl.issues.importantIssues,
+    warnings: crawl.issues.warnings,
+    passedChecks: crawl.issues.passedChecks,
+    recommendations,
+  };
+
+  // Idempotent upsert — retries overwrite the same AuditResult row
+  await prisma.auditResult.upsert({
+    where: { auditId: audit.id },
+    create: {
+      auditId: audit.id,
+      ...resultData,
+    },
+    update: resultData,
+  });
+
+  await prisma.audit.update({
+    where: { id: audit.id },
+    data: {
+      status: 'COMPLETED',
+      overallScore: crawl.scores.overallScore,
+      completedAt: new Date(),
+    },
+  });
+
+  return {
+    auditId: audit.id,
+    siteId: audit.siteId,
+    status: 'COMPLETED',
+    overallScore: crawl.scores.overallScore,
+    summary: crawl.summary,
+    pagesCrawled: crawl.summary.pagesCrawled,
+    totalInternalLinks: crawl.summary.totalInternalLinks,
+    totalExternalLinks: crawl.summary.totalExternalLinks,
+    seoIssuesCount: crawl.summary.seoIssuesCount,
+    pages: recommendations.crawl.pages,
+    scores: crawl.scores,
+  };
+}
+
+async function markAuditFailed(auditId, errorMessage) {
+  const existing = await prisma.audit.findUnique({
+    where: { id: auditId },
+    include: { result: true },
+  });
+
+  if (!existing) {
+    return;
+  }
+
+  const safeMessage = String(errorMessage || 'Crawl failed').slice(0, 300);
+
+  if (existing.result) {
+    const recommendations =
+      existing.result.recommendations &&
+      typeof existing.result.recommendations === 'object'
+        ? { ...existing.result.recommendations }
+        : {};
+
+    recommendations.crawlError = {
+      message: safeMessage,
+      at: new Date().toISOString(),
+    };
+
+    await prisma.auditResult.update({
+      where: { auditId },
+      data: { recommendations },
+    });
+  }
+
+  await prisma.audit.update({
+    where: { id: auditId },
+    data: {
+      status: 'FAILED',
+      completedAt: new Date(),
+    },
+  });
+}
+
 /**
- * Run a synchronous crawl for an audit and persist results into AuditResult.
+ * Enqueue an audit crawl job (API path). Does not run the crawler inline.
  */
-export async function crawlAudit(actor, auditId, rawConfig = {}) {
+export async function enqueueAuditCrawl(actor, auditId, rawConfig = {}) {
   const audit = await getOwnedAudit(actor, auditId);
 
   if (!ALLOWED_AUDIT_STATUSES.has(audit.status)) {
@@ -363,6 +483,15 @@ export async function crawlAudit(actor, auditId, rawConfig = {}) {
     throw new ApiError(400, 'Audit site URL is missing');
   }
 
+  // Fail fast for permanent URL/SSRF issues before queueing
+  await assertSafePublicUrl(startUrl, {
+    allowPrivateNetworks: env.crawler.allowPrivateNetworks,
+  });
+
+  const crawlConfig = clampCrawlConfig(rawConfig);
+
+  const previousStatus = audit.status;
+
   await prisma.audit.update({
     where: { id: audit.id },
     data: {
@@ -373,94 +502,105 @@ export async function crawlAudit(actor, auditId, rawConfig = {}) {
   });
 
   try {
-    const crawl = await crawlWebsite(startUrl, rawConfig);
-
-    const recommendations = {
-      crawl: {
-        summary: crawl.summary,
-        pages: crawl.pages.map((page) => ({
-          url: page.url,
-          requestedUrl: page.requestedUrl,
-          statusCode: page.statusCode,
-          contentType: page.contentType,
-          loadTimeMs: page.loadTimeMs,
-          title: page.title,
-          metaDescription: page.metaDescription,
-          metaKeywords: page.metaKeywords,
-          canonical: page.canonical,
-          robotsMeta: page.robotsMeta,
-          language: page.language,
-          headings: page.headings,
-          internalLinks: page.internalLinks,
-          externalLinks: page.externalLinks,
-          imagesMissingAltCount: page.imagesMissingAlt?.length || 0,
-          missingTitle: page.missingTitle,
-          missingMetaDescription: page.missingMetaDescription,
-          missingH1: page.missingH1,
-          error: page.error || null,
-        })),
+    const job = await enqueueAuditCrawlJob({
+      auditId: audit.id,
+      siteId: audit.siteId,
+      clientId: audit.clientId,
+      crawlConfig: {
+        maxPages: crawlConfig.maxPages,
+        maxDepth: crawlConfig.maxDepth,
+        timeoutMs: crawlConfig.timeoutMs,
+        sameDomainOnly: crawlConfig.sameDomainOnly,
       },
-    };
-
-    const resultData = {
-      technicalSeo: crawl.scores.technicalSeo,
-      onPageSeo: crawl.scores.onPageSeo,
-      performance: crawl.scores.performance,
-      mobileFriendliness: crawl.scores.mobileFriendliness,
-      contentQuality: crawl.scores.contentQuality,
-      schemaMarkup: crawl.scores.schemaMarkup,
-      criticalIssues: crawl.issues.criticalIssues,
-      importantIssues: crawl.issues.importantIssues,
-      warnings: crawl.issues.warnings,
-      passedChecks: crawl.issues.passedChecks,
-      recommendations,
-    };
-
-    if (audit.result) {
-      // Preserve model row; overwrite crawl-owned JSON/score fields only
-      await prisma.auditResult.update({
-        where: { auditId: audit.id },
-        data: resultData,
-      });
-    } else {
-      await prisma.auditResult.create({
-        data: {
-          auditId: audit.id,
-          ...resultData,
-        },
-      });
-    }
-
-    await prisma.audit.update({
-      where: { id: audit.id },
-      data: {
-        status: 'COMPLETED',
-        overallScore: crawl.scores.overallScore,
-        completedAt: new Date(),
-      },
+      requestedBy: actor?.id || null,
     });
 
     return {
       auditId: audit.id,
-      siteId: audit.siteId,
-      status: 'COMPLETED',
-      overallScore: crawl.scores.overallScore,
-      summary: crawl.summary,
-      pagesCrawled: crawl.summary.pagesCrawled,
-      totalInternalLinks: crawl.summary.totalInternalLinks,
-      totalExternalLinks: crawl.summary.totalExternalLinks,
-      seoIssuesCount: crawl.summary.seoIssuesCount,
-      pages: recommendations.crawl.pages,
-      scores: crawl.scores,
+      jobId: job.jobId,
+      status: 'PROCESSING',
+      message: 'Audit crawl job queued',
     };
   } catch (error) {
-    await prisma.audit.update({
-      where: { id: audit.id },
-      data: {
-        status: 'FAILED',
-        completedAt: new Date(),
-      },
+    // Roll back processing flag if enqueue failed (except duplicate-in-progress)
+    if (!(error instanceof ApiError && error.statusCode === 409)) {
+      await prisma.audit.update({
+        where: { id: audit.id },
+        data: {
+          status: previousStatus === 'PROCESSING' ? 'PENDING' : previousStatus,
+        },
+      });
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * Worker entry: crawl + persist results for an audit.
+ */
+export async function processAuditCrawl(
+  auditId,
+  rawConfig = {},
+  { onProgress } = {}
+) {
+  const audit = await prisma.audit.findUnique({
+    where: { id: auditId },
+    include: {
+      site: true,
+      result: true,
+    },
+  });
+
+  if (!audit) {
+    throw new ApiError(404, 'Audit not found');
+  }
+
+  const startUrl = audit.site?.url;
+  if (!startUrl) {
+    await markAuditFailed(auditId, 'Audit site URL is missing');
+    throw new ApiError(400, 'Audit site URL is missing');
+  }
+
+  if (typeof onProgress === 'function') {
+    await onProgress(10);
+  }
+
+  await prisma.audit.update({
+    where: { id: audit.id },
+    data: {
+      status: 'PROCESSING',
+      startedAt: audit.startedAt ?? new Date(),
+      completedAt: null,
+    },
+  });
+
+  try {
+    if (typeof onProgress === 'function') {
+      await onProgress(25);
+    }
+
+    const crawl = await crawlWebsite(startUrl, {
+      ...rawConfig,
+      allowPrivateNetworks:
+        rawConfig.allowPrivateNetworks ?? env.crawler.allowPrivateNetworks,
     });
+
+    if (typeof onProgress === 'function') {
+      await onProgress(80);
+    }
+
+    const result = await persistCrawlOutcome(audit, crawl);
+
+    if (typeof onProgress === 'function') {
+      await onProgress(100);
+    }
+
+    return result;
+  } catch (error) {
+    const message =
+      error instanceof ApiError ? error.message : 'Crawl failed';
+    await markAuditFailed(auditId, message);
 
     if (error instanceof ApiError) {
       throw error;
@@ -468,4 +608,12 @@ export async function crawlAudit(actor, auditId, rawConfig = {}) {
 
     throw new ApiError(500, 'Crawl failed');
   }
+}
+
+/**
+ * @deprecated Prefer enqueueAuditCrawl for API usage.
+ * Kept as an alias for clarity in older imports.
+ */
+export async function crawlAudit(actor, auditId, rawConfig = {}) {
+  return enqueueAuditCrawl(actor, auditId, rawConfig);
 }

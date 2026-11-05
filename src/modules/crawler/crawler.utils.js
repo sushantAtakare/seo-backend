@@ -371,6 +371,14 @@ export function extractPageSeo(html, pageUrl) {
     }
   });
 
+  const jsonLdBlocks = [];
+  $('script[type="application/ld+json"]').each((_, el) => {
+    const raw = $(el).contents().text();
+    if (raw && raw.trim()) {
+      jsonLdBlocks.push(raw.trim());
+    }
+  });
+
   return {
     url: pageUrl,
     title: title || null,
@@ -384,6 +392,7 @@ export function extractPageSeo(html, pageUrl) {
     externalLinks: uniqueStrings(externalLinks),
     images,
     imagesMissingAlt,
+    jsonLdBlocks,
     missingTitle: !title,
     missingMetaDescription: !metaDescription,
     missingH1: headings.h1.length === 0,
