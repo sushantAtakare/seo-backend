@@ -18,7 +18,8 @@
     "test:audits": "node scripts/test-audits.js",
     "test:crawler": "node scripts/test-crawler.js",
     "test:queue": "node scripts/test-queue.js",
-    "test:integrations": "node scripts/test-integrations.js"
+    "test:integrations": "node scripts/test-integrations.js",
+    "test:ai": "node scripts/test-ai-analysis.js"
   },
   "engines": {
     "node": ">=18"

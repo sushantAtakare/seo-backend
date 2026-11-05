@@ -51,7 +51,7 @@ export const getApiInfo = (req, res) => {
           group: 'integrations',
           basePath: 'worker:/seo-audit-queue',
           description:
-            'PageSpeed, Search Console, DataForSEO and Schema analysis after crawl',
+            'PageSpeed, Search Console, DataForSEO, Schema and Claude AI analysis after crawl',
         },
         {
           group: 'api',

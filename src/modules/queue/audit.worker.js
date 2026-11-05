@@ -8,6 +8,7 @@ import {
 import ApiError from '../../utils/ApiError.js';
 import { processAuditCrawl } from '../crawler/crawler.service.js';
 import { enrichAuditWithIntegrations } from '../integrations/integrations.service.js';
+import { enrichAuditWithAiAnalysis } from '../integrations/claude/ai-analysis.service.js';
 import env from '../../config/env.js';
 
 function isPermanentCrawlError(error) {
@@ -53,13 +54,13 @@ export function createAuditWorker() {
           },
           {
             onProgress: async (value) => {
-              // Reserve 70% of progress for crawl
-              await job.updateProgress(Math.min(70, Math.round(value * 0.7)));
+              // Reserve ~65% of progress for crawl
+              await job.updateProgress(Math.min(65, Math.round(value * 0.65)));
             },
           }
         );
 
-        await job.updateProgress(75);
+        await job.updateProgress(70);
 
         // Integrations run after a successful crawl and must not discard crawl results
         let integrations = null;
@@ -74,6 +75,24 @@ export function createAuditWorker() {
             auditId,
             skipped: true,
             reason: 'Integration enrichment failed',
+          };
+        }
+
+        await job.updateProgress(85);
+
+        // AI analysis uses crawl + integration outputs; failures must not erase them
+        let aiAnalysis = null;
+        try {
+          aiAnalysis = await enrichAuditWithAiAnalysis(auditId);
+        } catch (aiError) {
+          console.error(
+            `[audit-worker] AI analysis failed for ${auditId}:`,
+            aiError.message
+          );
+          aiAnalysis = {
+            auditId,
+            skipped: true,
+            reason: 'AI analysis failed',
           };
         }
 
@@ -93,6 +112,11 @@ export function createAuditWorker() {
             dataforseo:
               integrations?.integrations?.dataforseo?.success ?? null,
             schema: integrations?.integrations?.schema?.success ?? null,
+          },
+          aiAnalysis: {
+            success: aiAnalysis?.success ?? false,
+            mock: aiAnalysis?.mock ?? null,
+            skipped: aiAnalysis?.skipped ?? false,
           },
         };
       } catch (error) {

@@ -28,6 +28,14 @@ const integrations = {
     login: process.env.DATAFORSEO_LOGIN || '',
     password: process.env.DATAFORSEO_PASSWORD || '',
   },
+  anthropic: {
+    apiKey: process.env.ANTHROPIC_API_KEY || '',
+    model: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-latest',
+    maxTokens: Math.min(
+      4000,
+      Math.max(500, Number(process.env.ANTHROPIC_MAX_TOKENS) || 2500)
+    ),
+  },
   // Keep a reference to runtime env for callers that already import env
   nodeEnv: env.nodeEnv,
 };
@@ -48,6 +56,10 @@ export function hasDataForSeoCredentials() {
   return Boolean(
     integrations.dataForSeo.login && integrations.dataForSeo.password
   );
+}
+
+export function hasAnthropicCredentials() {
+  return Boolean(integrations.anthropic.apiKey);
 }
 
 export default integrations;
