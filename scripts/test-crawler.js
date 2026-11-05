@@ -394,8 +394,8 @@ async function run() {
       body: { maxPages: 1, maxDepth: 0 },
     });
     assert(
-      ssrfRes.status === 400 || ssrfRes.status === 408,
-      'API SSRF protection blocks localhost crawl',
+      ssrfRes.status === 400,
+      'API SSRF protection blocks localhost crawl before queueing',
       `status=${ssrfRes.status} message=${ssrfRes.json?.message}`
     );
 
@@ -442,26 +442,32 @@ async function run() {
       'CLIENT ownership restrictions block other audits'
     );
 
-    // ADMIN can attempt crawl (may fail on DNS for fake domain — still authorized path)
+    // ADMIN can attempt crawl (URL safety may reject fake domains before queue)
     const adminAttempt = await request(`/api/v1/audits/${auditA.id}/crawl`, {
       method: 'POST',
       token: adminToken,
       body: { maxPages: 1, maxDepth: 0 },
     });
     assert(
-      [200, 400, 408].includes(adminAttempt.status),
+      [202, 400].includes(adminAttempt.status),
       'ADMIN authorization can invoke crawl endpoint',
       `status=${adminAttempt.status}`
     );
 
-    // CLIENT can invoke own audit crawl endpoint (DNS may fail for example domain)
+    // CLIENT can invoke own audit crawl endpoint
+    // Reset audit if previous attempt left it PROCESSING without a job
+    await prisma.audit.update({
+      where: { id: auditA.id },
+      data: { status: 'PENDING' },
+    });
+
     const clientOwn = await request(`/api/v1/audits/${auditA.id}/crawl`, {
       method: 'POST',
       token: tokenA,
       body: { maxPages: 1, maxDepth: 0 },
     });
     assert(
-      [200, 400, 408, 409].includes(clientOwn.status) && clientOwn.status !== 403,
+      [202, 400, 409].includes(clientOwn.status) && clientOwn.status !== 403,
       'CLIENT can access own audit crawl endpoint',
       `status=${clientOwn.status}`
     );

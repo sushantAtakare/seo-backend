@@ -11,6 +11,8 @@ const requiredVars = [
   'JWT_REFRESH_SECRET',
   'JWT_ACCESS_EXPIRES_IN',
   'JWT_REFRESH_EXPIRES_IN',
+  'REDIS_HOST',
+  'REDIS_PORT',
 ];
 
 const missing = requiredVars.filter((key) => !process.env[key]);
@@ -33,6 +35,18 @@ const env = {
     accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN,
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN,
   },
+  redis: {
+    host: process.env.REDIS_HOST,
+    port: Number(process.env.REDIS_PORT),
+    password: process.env.REDIS_PASSWORD || undefined,
+    db: Number(process.env.REDIS_DB || 0),
+    tls: String(process.env.REDIS_TLS || 'false').toLowerCase() === 'true',
+  },
+  crawler: {
+    allowPrivateNetworks:
+      String(process.env.CRAWLER_ALLOW_PRIVATE_NETWORKS || 'false').toLowerCase() ===
+      'true',
+  },
 };
 
 if (Number.isNaN(env.port) || env.port <= 0) {
@@ -54,6 +68,14 @@ if (
 
 if (env.jwt.accessSecret === env.jwt.refreshSecret) {
   throw new Error('JWT access and refresh secrets must be different');
+}
+
+if (Number.isNaN(env.redis.port) || env.redis.port <= 0) {
+  throw new Error('REDIS_PORT must be a valid positive number');
+}
+
+if (Number.isNaN(env.redis.db) || env.redis.db < 0) {
+  throw new Error('REDIS_DB must be a non-negative number');
 }
 
 export default env;

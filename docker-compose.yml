@@ -1,0 +1,25 @@
+# Local infrastructure helpers for seo-backend.
+# PostgreSQL remains external (seo_automation). Redis is provided here when needed.
+#
+# If host port 6379 is already used by another Redis container, either:
+# - point REDIS_HOST/REDIS_PORT at that instance, or
+# - change the left-hand port mapping below (e.g. "6380:6379") and update .env.
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: seo-backend-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - seo_redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  seo_redis_data:
